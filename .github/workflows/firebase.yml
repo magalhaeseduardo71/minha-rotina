@@ -1,22 +1,77 @@
-name: Publicar Firebase (lembretes e regras)
+name: Configurar e publicar Firebase
 on:
   push:
     branches: [main]
-    paths: ["firebase/**"]
+    paths: ["firebase/**", ".github/workflows/firebase.yml"]
   workflow_dispatch:
 jobs:
-  deploy:
+  firebase:
     runs-on: ubuntu-latest
-    if: ${{ vars.FIREBASE_PROJECT_ID != '' }}
+    env:
+      SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      DOMAIN: magalhaeseduardo71.github.io
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - run: npm ci || npm install
-        working-directory: firebase/functions
-      - name: Autenticar no Google
+      - name: Verificar chave
+        id: chk
+        run: |
+          if [ -z "$SA" ]; then echo "::warning::Secret FIREBASE_SERVICE_ACCOUNT ainda não foi colocado."; echo "ok=false" >> $GITHUB_OUTPUT; exit 0; fi
+          echo "ok=true" >> $GITHUB_OUTPUT
+          echo "PROJECT=$(echo "$SA" | jq -r .project_id)" >> $GITHUB_ENV
+      - if: steps.chk.outputs.ok == 'true'
         uses: google-github-actions/auth@v2
         with: { credentials_json: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" }
-      - name: Publicar
+      - if: steps.chk.outputs.ok == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+      - if: steps.chk.outputs.ok == 'true'
+        uses: actions/setup-node@v4
+        with: { node-version: 20 }
+
+      - name: Ativar serviços do Google Cloud
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          gcloud services enable firebase.googleapis.com firestore.googleapis.com identitytoolkit.googleapis.com \
+            cloudfunctions.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com run.googleapis.com \
+            eventarc.googleapis.com pubsub.googleapis.com cloudscheduler.googleapis.com fcm.googleapis.com \
+            firebaserules.googleapis.com firebaseinstallations.googleapis.com --project "$PROJECT"
+
+      - name: Criar banco de dados (Firestore, São Paulo)
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          gcloud firestore databases describe --database="(default)" --project "$PROJECT" >/dev/null 2>&1 \
+            && echo "Banco já existe." \
+            || gcloud firestore databases create --location=southamerica-east1 --project "$PROJECT"
+
+      - name: Ligar login por e-mail/senha e autorizar o domínio
+        if: steps.chk.outputs.ok == 'true'
+        continue-on-error: true
+        run: |
+          TOKEN=$(gcloud auth print-access-token)
+          API="https://identitytoolkit.googleapis.com/admin/v2/projects/$PROJECT/config"
+          CUR=$(curl -s -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJECT" "$API")
+          echo "$CUR" | jq '{signIn, authorizedDomains}' || echo "$CUR"
+          DOMS=$(echo "$CUR" | jq -c --arg d "$DOMAIN" '((.authorizedDomains // ["localhost"]) + [$d]) | unique')
+          BODY=$(jq -n --argjson doms "$DOMS" '{signIn:{email:{enabled:true,passwordRequired:true}},authorizedDomains:$doms}')
+          RES=$(curl -s -X PATCH -H "Authorization: Bearer $TOKEN" -H "x-goog-user-project: $PROJECT" -H "Content-Type: application/json" \
+            "$API?updateMask=signIn.email.enabled,signIn.email.passwordRequired,authorizedDomains" -d "$BODY")
+          echo "$RES" | jq '{signIn, authorizedDomains, error}'
+          echo "$RES" | jq -e '.signIn.email.enabled == true' >/dev/null && echo "AUTH_OK" || { echo "AUTH_FALHOU"; exit 1; }
+
+      - name: Registrar o app Web e mostrar a configuração
+        if: steps.chk.outputs.ok == 'true'
+        run: |
+          FB="npx -y firebase-tools@13"
+          APP=$($FB apps:list WEB --project "$PROJECT" --json | jq -r '.result[] | select(.displayName=="Rotina") | .appId' | head -1)
+          if [ -z "$APP" ]; then APP=$($FB apps:create WEB Rotina --project "$PROJECT" --json | jq -r '.result.appId'); fi
+          echo "APP_ID=$APP"
+          echo "=====CONFIG_INICIO====="
+          $FB apps:sdkconfig WEB "$APP" --project "$PROJECT" --json | jq -c '.result.sdkConfig // .result'
+          echo "=====CONFIG_FIM====="
+
+      - name: Publicar regras de segurança e lembretes
+        if: steps.chk.outputs.ok == 'true'
         working-directory: firebase
-        run: npx -y firebase-tools@13 deploy --only firestore:rules,functions --project "${{ vars.FIREBASE_PROJECT_ID }}" --non-interactive --force
+        run: |
+          (cd functions && npm ci || npm install)
+          D="npx -y firebase-tools@13 deploy --only firestore:rules,functions --project $PROJECT --non-interactive --force"
+          $D || { echo "Primeira tentativa falhou (comum em projeto novo). Tentando de novo em 60s..."; sleep 60; $D; }

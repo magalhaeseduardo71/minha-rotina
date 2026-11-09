@@ -9,5 +9,5 @@ self.FIREBASE_CONFIG = {
   messagingSenderId: "",
   appId: ""
 };
-/* Chave pública do Web Push: Configurações do projeto › Cloud Messaging › Certificados Web Push. */
+/* Opcional: chave Web Push própria. Vazio = usa a chave padrão do Firebase. */
 self.VAPID_KEY = "";

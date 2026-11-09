@@ -11,14 +11,12 @@ dias anteriores somente leitura e lembretes push (inclusive com a tela bloqueada
 - **Regra**: só o dia de hoje pode ser marcado como concluído.
 
 ## Configuração (uma vez)
-1. Firebase: criar projeto, ativar o plano Blaze, ativar Authentication › E-mail/senha,
-   criar o Firestore, adicionar um app Web e gerar o certificado Web Push (Cloud Messaging).
-2. Preencher `firebase-config.js` (dados públicos) e `firebase/.firebaserc`.
-3. No GitHub (Settings › Secrets and variables › Actions):
-   - Secret `FIREBASE_SERVICE_ACCOUNT`: JSON da conta de serviço do projeto.
-   - Variable `FIREBASE_PROJECT_ID`: id do projeto.
-4. Settings › Pages › Source: **GitHub Actions**.
-5. No Firebase Authentication › Settings › Domínios autorizados: adicionar `magalhaeseduardo71.github.io`.
+1. Criar o projeto no Firebase e ativar o plano Blaze.
+2. Gerar a chave da conta de serviço e colocar no GitHub como secret `FIREBASE_SERVICE_ACCOUNT`.
+3. No IAM do Google Cloud, dar o papel **Proprietário** a essa conta de serviço.
+4. Rodar o workflow **Configurar e publicar Firebase**: ele ativa os serviços, cria o Firestore,
+   liga o login por e-mail/senha, autoriza o domínio, registra o app Web e publica regras e lembretes.
+5. Copiar a configuração mostrada no log para `firebase-config.js`.
 
 ## No iPhone
 Abra o endereço no Safari › Compartilhar › **Adicionar à Tela de Início** › abra pelo ícone ›

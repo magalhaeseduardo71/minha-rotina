@@ -421,7 +421,8 @@ async function enablePush(silent){
     const msgM = await import(FB('messaging'));
     if (!(await msgM.isSupported())){ if (!silent) toast('Notificações não suportadas aqui.'); return; }
     const messaging = msgM.getMessaging(fb.app);
-    const token = await msgM.getToken(messaging, { vapidKey: window.VAPID_KEY, serviceWorkerRegistration: swReg });
+    const opts = { serviceWorkerRegistration: swReg }; if (window.VAPID_KEY) opts.vapidKey = window.VAPID_KEY;
+    const token = await msgM.getToken(messaging, opts);
     await fb.fs.setDoc(fb.fs.doc(fb.db,'users',fb.user.uid), { tokens: { [DEV.id]: { token, ua: navigator.userAgent.slice(0,160), at: Date.now() } } }, { merge:true });
     DEV.push = true; saveDev();
     if (!fb.onMsg){ fb.onMsg = true; msgM.onMessage(messaging, p => { const n = p.notification || {}; toast((n.title || 'Lembrete') + (n.body ? ' · ' + n.body : '')); }); }
