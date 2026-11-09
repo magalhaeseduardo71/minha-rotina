@@ -1,0 +1,22 @@
+name: Publicar Firebase (lembretes e regras)
+on:
+  push:
+    branches: [main]
+    paths: ["firebase/**"]
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ vars.FIREBASE_PROJECT_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm ci || npm install
+        working-directory: firebase/functions
+      - name: Autenticar no Google
+        uses: google-github-actions/auth@v2
+        with: { credentials_json: "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" }
+      - name: Publicar
+        working-directory: firebase
+        run: npx -y firebase-tools@13 deploy --only firestore:rules,functions --project "${{ vars.FIREBASE_PROJECT_ID }}" --non-interactive --force
