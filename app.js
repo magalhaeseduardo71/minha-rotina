@@ -188,7 +188,7 @@ function render(){
     const rl = m !== 'past' && !x.done ? remLabel(x.rem, x.time) : '';
     const meta = [
       x.time ? `<span class="tag">${ICON.clock}${x.time}</span>` : '',
-      rl ? `<span class="tag">${ICON.bell}${rl}</span>` : '',
+      CFG && rl ? `<span class="tag">${ICON.bell}${rl}</span>` : '',
       x.kind === 'routine' ? `<span class="tag">${ICON.repeat}${repLabel(x.days)}</span>` : '',
       missed ? `<span class="tag miss">Não concluída</span>` : ''
     ].join('');
