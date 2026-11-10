@@ -10,7 +10,7 @@ if (self.FIREBASE_CONFIG && self.FIREBASE_CONFIG.apiKey) {
   firebase.messaging(); // mostra a notificação sozinho, mesmo com o app fechado ou a tela bloqueada
 }
 
-const CACHE = 'rotina-v1';
+const CACHE = 'rotina-v2';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'firebase-config.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())); });

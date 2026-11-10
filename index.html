@@ -112,6 +112,11 @@
     <button class="primary" id="l-go" type="submit">Entrar</button>
     <button class="link" id="l-switch" type="button">Primeira vez? Criar conta</button>
   </form>
+  <form class="login" id="pinform" hidden autocomplete="off">
+    <input class="input" id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="PIN" aria-label="PIN">
+    <input class="input" id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="Repita o PIN" aria-label="Repita o PIN" hidden>
+    <button class="primary" id="pin-go" type="submit">Entrar</button>
+  </form>
   <div class="lock-actions" id="lock-actions">
     <button class="primary" id="lock-btn"></button>
     <div class="err" id="lock-err"></div>

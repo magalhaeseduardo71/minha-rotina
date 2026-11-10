@@ -330,6 +330,7 @@ function clearDemo(){
 }
 
 /* ---------- Bloqueio: login (nuvem) + Face ID ---------- */
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const inFrame = (() => { try { return window.self !== window.top; } catch { return true; } })();
 const hasWA = !!(window.PublicKeyCredential && navigator.credentials && window.isSecureContext);
 const rnd = n => crypto.getRandomValues(new Uint8Array(n));
@@ -352,12 +353,25 @@ function paintLock(){
     $('l-pass').autocomplete = creating ? 'new-password' : 'current-password';
     return;
   }
+  // iPhone/iPad: Face ID. Computador e outros aparelhos: PIN.
+  const usePin = !(hasWA && isIOS) && !inFrame;
+  $('pinform').hidden = !usePin;
+  $('lock-btn').hidden = usePin;
+  $('lock-face').hidden = usePin;
+  $('lock-skip').hidden = !inFrame;
+  $('lock-skip').textContent = 'Continuar sem Face ID (prévia)';
+  if (usePin){
+    const has = !!DEV.pinHash;
+    $('lock-msg').textContent = has ? 'Digite seu PIN para entrar.' : 'Neste aparelho não há Face ID. Crie um PIN de 4 a 8 números para proteger sua rotina.';
+    $('pin2').hidden = has;
+    $('pin-go').textContent = has ? 'Entrar' : 'Criar PIN e entrar';
+    $('pin').value = ''; $('pin2').value = '';
+    setTimeout(() => $('pin').focus(), 50);
+    return;
+  }
   const enrolled = !!DEV.faceId;
   $('lock-msg').textContent = enrolled ? 'Sua rotina está protegida. Use o Face ID para entrar.' : 'Proteja sua rotina. Ative o Face ID para que só você consiga abrir o app.';
   $('lock-btn').textContent = enrolled ? 'Entrar com Face ID' : 'Ativar Face ID';
-  $('lock-skip').hidden = !(inFrame || !hasWA);
-  $('lock-skip').textContent = inFrame ? 'Continuar sem Face ID (prévia)' : 'Continuar sem Face ID';
-  if (!hasWA) $('lock-err').textContent = 'Face ID indisponível aqui. Abra pelo endereço https do app.';
 }
 function lock(){ unlocked = false; hide(); paintLock(); }
 function unlock(){ unlocked = true; $('lock').hidden = true; $('lock-err').textContent = ''; render(); }
@@ -385,6 +399,28 @@ $('lock-btn').onclick = async () => {
   }
 };
 $('lock-skip').onclick = unlock;
+
+async function hashPin(pin){
+  const txt = 'minha-rotina|' + DEV.id + '|' + pin;
+  if (window.crypto && crypto.subtle){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+    return b64(buf);
+  }
+  let h = 5381; for (const c of txt) h = ((h << 5) + h + c.charCodeAt(0)) >>> 0; return 'x' + h;
+}
+let pinTries = 0;
+$('pinform').onsubmit = async e => {
+  e.preventDefault();
+  const pin = $('pin').value.trim(), err = $('lock-err'); err.textContent = '';
+  if (!/^\d{4,8}$/.test(pin)) { err.textContent = 'O PIN precisa ter de 4 a 8 números.'; return; }
+  if (!DEV.pinHash){
+    if (pin !== $('pin2').value.trim()) { err.textContent = 'Os dois PINs não são iguais.'; return; }
+    DEV.pinHash = await hashPin(pin); saveDev(); toast('PIN criado'); unlock(); return;
+  }
+  if (await hashPin(pin) === DEV.pinHash){ pinTries = 0; unlock(); }
+  else { pinTries++; $('pin').value = ''; err.textContent = pinTries >= 5 ? 'PIN incorreto. Espere 30 segundos.' : 'PIN incorreto.';
+    if (pinTries >= 5){ $('pin-go').disabled = true; setTimeout(() => { $('pin-go').disabled = false; pinTries = 0; err.textContent = ''; }, 30000); } }
+};
 $('btn-lock').onclick = lock;
 
 $('l-switch').onclick = () => { creating = !creating; $('lock-err').textContent = ''; paintLock(); };
@@ -407,7 +443,6 @@ $('login').onsubmit = async e => {
 };
 
 /* ---------- Notificações ---------- */
-const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 const standalone = window.navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
 let swReg = null;
 
@@ -468,7 +503,7 @@ function tick(){
 setInterval(tick, 30000);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) hiddenAt = Date.now();
-  else { tick(); if (unlocked && DEV.faceId && Date.now() - hiddenAt > 60000) lock(); }
+  else { tick(); if (unlocked && (DEV.faceId || DEV.pinHash) && Date.now() - hiddenAt > 60000) lock(); }
 });
 
 /* ---------- Início ---------- */
