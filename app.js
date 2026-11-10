@@ -42,7 +42,7 @@ async function initFirebase(){
   const [appM, authM, fs] = await Promise.all([import(FB('app')), import(FB('auth')), import(FB('firestore'))]);
   const app = appM.initializeApp(CFG);
   let db;
-  try { db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache() }); }
+  try { db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) }); }
   catch { db = fs.getFirestore(app); }
   const auth = authM.getAuth(app);
   fb = { app, db, auth, fs, authM, user:null };
@@ -61,7 +61,7 @@ const clean = o => Object.fromEntries(Object.entries(o).filter(([k,v]) => k !== 
 
 function subscribe(){
   const { onSnapshot } = fb.fs;
-  let got = 0; const mark = () => { if (++got >= 3){ dataReady = true; } schedule(); };
+  let got = 0; const mark = () => { if (++got === 3){ dataReady = true; migrateLocal(); } schedule(); };
   unsubs.push(onSnapshot(col('tasks'), s => { S.tasks = s.docs.map(d => ({ id:d.id, ...d.data() })); mark(); }));
   unsubs.push(onSnapshot(col('routines'), s => { S.routines = s.docs.map(d => ({ id:d.id, ...d.data() })); mark(); }));
   unsubs.push(onSnapshot(col('days'), s => {
@@ -71,6 +71,29 @@ function subscribe(){
       for (const rid of Object.keys(v.rskip||{})) S.rskip[d.id+'|'+rid] = 1; });
     mark();
   }));
+}
+
+/* Sobe para a nuvem, uma única vez, o que já estava salvo só neste aparelho. */
+async function migrateLocal(){
+  const key = 'migrated_' + fb.user.uid;
+  if (DEV[key]) return;
+  let L = null; try { L = JSON.parse(localStorage.getItem(LKEY)); } catch {}
+  const tasks = (L && L.tasks || []).filter(t => !t.demo), routines = (L && L.routines || []).filter(r => !r.demo);
+  if (!tasks.length && !routines.length){ DEV[key] = true; saveDev(); return; }
+  try {
+    const { writeBatch } = fb.fs; let b = writeBatch(fb.db), n = 0;
+    const add = async (r, data, opt) => { opt ? b.set(r, data, opt) : b.set(r, data); if (++n >= 400){ await b.commit(); b = writeBatch(fb.db); n = 0; } };
+    const rids = new Set(routines.map(r => r.id));
+    for (const t of tasks) await add(ref('tasks', t.id), clean({ ...t, reminders: t.reminders || [] }));
+    for (const r of routines) await add(ref('routines', r.id), clean({ ...r, reminders: r.reminders || [] }));
+    const days = {};
+    for (const [k, v] of Object.entries(L.rdone || {})){ const [d, rid] = k.split('|'); if (rids.has(rid)) ((days[d] ||= {}).rdone ||= {})[rid] = v; }
+    for (const k of Object.keys(L.rskip || {})){ const [d, rid] = k.split('|'); if (rids.has(rid)) ((days[d] ||= {}).rskip ||= {})[rid] = 1; }
+    for (const [d, v] of Object.entries(days)) await add(ref('days', d), v, { merge: true });
+    await b.commit();
+    DEV[key] = true; saveDev();
+    toast(`${tasks.length + routines.length} atividades deste aparelho foram para a nuvem`);
+  } catch (err){ console.error('migração', err); }
 }
 
 function registerUser(){
@@ -346,10 +369,12 @@ function paintLock(){
   $('lock-actions').hidden = needLogin;
   $('lock-face').hidden = needLogin;
   if (needLogin){
+    $('pinform').hidden = true;
     unlocked = false;
     $('lock-msg').textContent = fb ? (creating ? 'Crie sua conta. Ela guarda sua rotina na nuvem.' : 'Entre na sua conta. Isso só é pedido uma vez neste aparelho.') : 'Conectando…';
     $('l-go').textContent = creating ? 'Criar conta' : 'Entrar';
     $('l-switch').textContent = creating ? 'Já tenho conta' : 'Primeira vez? Criar conta';
+    $('l-reset').hidden = creating;
     $('l-pass').autocomplete = creating ? 'new-password' : 'current-password';
     return;
   }
@@ -423,6 +448,13 @@ $('pinform').onsubmit = async e => {
 };
 $('btn-lock').onclick = lock;
 
+$('l-reset').onclick = async () => {
+  const email = $('l-email').value.trim(), err = $('lock-err');
+  $('lock-actions').hidden = false; $('lock-btn').hidden = true;
+  if (!email){ err.textContent = 'Digite seu e-mail acima e toque de novo.'; return; }
+  try { await fb.authM.sendPasswordResetEmail(fb.auth, email); err.textContent = 'Enviamos um link para criar nova senha no seu e-mail.'; }
+  catch { err.textContent = 'Não foi possível enviar. Confira o e-mail.'; }
+};
 $('l-switch').onclick = () => { creating = !creating; $('lock-err').textContent = ''; paintLock(); };
 $('login').onsubmit = async e => {
   e.preventDefault(); if (!fb) return;
@@ -431,7 +463,7 @@ $('login').onsubmit = async e => {
   try {
     if (creating) await fb.authM.createUserWithEmailAndPassword(fb.auth, email, pass);
     else await fb.authM.signInWithEmailAndPassword(fb.auth, email, pass);
-    $('lock-btn').hidden = false;
+    paintLock();
   } catch (err){
     const c = err.code || '';
     errEl.textContent = c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found') ? 'E-mail ou senha incorretos.'
